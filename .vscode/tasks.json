@@ -19,6 +19,23 @@
                 "isDefault": true
             },
             "detail": "Build with MSVC environment initialized"
+        },
+        {
+            "type": "shell",
+            "label": "C/C++: cl.exe build tests",
+            "command": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cl.exe /O2 /Oi /GL /EHsc /nologo /I${workspaceFolder}\\include /Fe${workspaceFolder}\\build\\tests.exe ${workspaceFolder}\\src\\tests.cpp ${workspaceFolder}\\src\\BitGrid.cpp ${workspaceFolder}\\src\\CanonicalState.cpp ${workspaceFolder}\\src\\SpiralGenerator.cpp ${workspaceFolder}\\src\\LifeRunner.cpp ${workspaceFolder}\\src\\StateCache.cpp ${workspaceFolder}\\src\\CachedLifeAnalyzer.cpp ${workspaceFolder}\\src\\RLEParser.cpp /link /LTCG",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "shell": {
+                    "executable": "cmd.exe",
+                    "args": ["/d", "/c"]
+                }
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "group": "build",
+            "detail": "Build comprehensive test suite"
         }
     ],
     "version": "2.0.0"
