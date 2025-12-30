@@ -30,7 +30,7 @@ public:
     void init(PlacedGrid pg);
     void step(int margin = 2);
     void run(int64_t gens, int margin = 2);
-    LoopInfo run_until_repeat(int margin = 2, int64_t max_steps = 1000);
+    LoopInfo run_until_repeat(int margin = 2, int64_t max_steps = 10000);
 
     const BitGrid &grid() const { return cur_; }
     Stats stats() const;
