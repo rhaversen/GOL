@@ -35,6 +35,7 @@ public:
     const BitGrid &grid() const { return cur_; }
     Stats stats() const;
     CanonicalState canonical_translation_invariant() const;
+    std::pair<int64_t, int64_t> anchor_logical_min() const;
 
 private:
     BitGrid cur_;
@@ -45,7 +46,6 @@ private:
     uint64_t pop_ = 0;
     Bounds bounds_;
 
-    std::pair<int64_t, int64_t> anchor_logical_min() const;
     void recompute();
     void step_once();
     void ensure_margin(int margin);

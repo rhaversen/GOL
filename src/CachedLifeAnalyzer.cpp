@@ -1,10 +1,26 @@
 #include "CachedLifeAnalyzer.h"
 #include <unordered_map>
+#include <iostream>
+#include <iomanip>
 
 CachedLifeAnalyzer::Result CachedLifeAnalyzer::analyze(PlacedGrid pg, int margin, int64_t max_steps)
 {
     LifeRunner runner;
     runner.init(std::move(pg));
+    
+    // Special case: empty pattern (population 0)
+    // Floyd's algorithm returns {gen, 0, 1, 0, 0} for empty patterns
+    if (runner.stats().pop == 0)
+    {
+        Result result;
+        result.first_repeat_step = runner.stats().gen;  // Current generation
+        result.prefix_len = 0;
+        result.period = 1;
+        result.dx = 0;
+        result.dy = 0;
+        result.max_steps_reached = false;
+        return result;
+    }
     
     int64_t current_gen = 0;
     std::vector<CanonicalState> path;
@@ -28,13 +44,17 @@ CachedLifeAnalyzer::Result CachedLifeAnalyzer::analyze(PlacedGrid pg, int margin
             result.dy = cached_info.dy;
             result.max_steps_reached = false;
             
-            // Backfill all states we visited on this path
+            // Backfill all states we visited on this path (not including current)
             backfill_path(path, current_gen, cached_info);
+            
+            // Cache the current state separately
+            cache_.insert(canonical_state, cached_info);
             
             return result;
         }
         
         // Check if we've seen this state in our current path (cycle detection)
+        // Must check BEFORE adding to path to detect cycles properly
         for (size_t i = 0; i < path.size(); ++i)
         {
             if (canonical_equal(path[i], canonical_state))
@@ -43,22 +63,23 @@ CachedLifeAnalyzer::Result CachedLifeAnalyzer::analyze(PlacedGrid pg, int margin
                 int64_t cycle_start_gen = i;
                 int64_t period = current_gen - cycle_start_gen;
                 
-                // Compute translation
-                auto stats_cycle_start = runner.stats();
+                // Compute translation using anchor_logical_min (like Floyd's algorithm)
+                auto anchor_before = runner.anchor_logical_min();
                 
                 // Create a PlacedGrid from current state
                 PlacedGrid temp_pg;
                 temp_pg.grid = runner.grid();
-                temp_pg.offset_x = stats_cycle_start.offset_x;
-                temp_pg.offset_y = stats_cycle_start.offset_y;
+                auto stats = runner.stats();
+                temp_pg.offset_x = stats.offset_x;
+                temp_pg.offset_y = stats.offset_y;
                 
                 LifeRunner temp_runner;
                 temp_runner.init(std::move(temp_pg));
                 temp_runner.run(period, margin);
-                auto stats_after_period = temp_runner.stats();
+                auto anchor_after = temp_runner.anchor_logical_min();
                 
-                int64_t dx = stats_after_period.offset_x - stats_cycle_start.offset_x;
-                int64_t dy = stats_after_period.offset_y - stats_cycle_start.offset_y;
+                int64_t dx = anchor_after.first - anchor_before.first;
+                int64_t dy = anchor_after.second - anchor_before.second;
                 
                 Result result;
                 result.prefix_len = cycle_start_gen;
@@ -120,14 +141,16 @@ CachedLifeAnalyzer::Result CachedLifeAnalyzer::analyze(PlacedGrid pg, int margin
 }
 
 void CachedLifeAnalyzer::backfill_path(const std::vector<CanonicalState>& path,
-                                       int64_t start_gen,
+                                       int64_t current_gen,
                                        const CachedCycleInfo& cycle_info)
 {
     // Fill cache for all states in the path
+    // path[i] is the state at generation i (path does NOT include current_gen)
     for (size_t i = 0; i < path.size(); ++i)
     {
         CachedCycleInfo info_for_state;
-        info_for_state.steps_to_cycle = cycle_info.steps_to_cycle + (path.size() - i);
+        // Steps from generation i to current_gen, then to cycle
+        info_for_state.steps_to_cycle = (current_gen - (int64_t)i) + cycle_info.steps_to_cycle;
         info_for_state.cycle_start_gen = cycle_info.cycle_start_gen;
         info_for_state.period = cycle_info.period;
         info_for_state.dx = cycle_info.dx;
