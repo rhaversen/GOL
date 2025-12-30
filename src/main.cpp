@@ -1,4 +1,6 @@
 #include "LifeRunner.h"
+#include "CachedLifeAnalyzer.h"
+#include "StateCache.h"
 #include "SpiralGenerator.h"
 #include <iostream>
 #include <fstream>

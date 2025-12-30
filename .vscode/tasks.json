@@ -18,6 +18,8 @@
                 "${workspaceFolder}\\src\\CanonicalState.cpp",
                 "${workspaceFolder}\\src\\SpiralGenerator.cpp",
                 "${workspaceFolder}\\src\\LifeRunner.cpp",
+                "${workspaceFolder}\\src\\StateCache.cpp",
+                "${workspaceFolder}\\src\\CachedLifeAnalyzer.cpp",
                 "/link",
                 "/LTCG"
             ],
