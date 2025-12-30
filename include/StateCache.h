@@ -33,6 +33,15 @@ public:
     uint64_t hits() const { return hits_; }
     uint64_t misses() const { return misses_; }
     
+    // Checkpoint statistics
+    uint64_t checkpoint_hits() const { return checkpoint_hits_; }
+    uint64_t checkpoint_misses() const { return checkpoint_misses_; }
+    void reset_checkpoint_stats();
+    
+    // Persistent storage
+    bool save(const std::string& filename);
+    bool load(const std::string& filename);
+    
     // Thread-safe operations
     void lock() { mutex_.lock(); }
     void unlock() { mutex_.unlock(); }
@@ -47,6 +56,8 @@ private:
     // Statistics
     uint64_t hits_ = 0;
     uint64_t misses_ = 0;
+    uint64_t checkpoint_hits_ = 0;
+    uint64_t checkpoint_misses_ = 0;
     
     // Thread safety
     mutable std::mutex mutex_;

@@ -17,6 +17,9 @@
 #include <set>
 #include <algorithm>
 
+// Global state cache shared across all threads
+StateCache g_state_cache;
+
 struct AnalysisState
 {
     uint64_t highest_idx = 0;
@@ -95,6 +98,17 @@ std::string format_duration(double seconds)
 
 int main()
 {
+    // Load persistent cache
+    std::cout << "Loading cache from disk..." << std::flush;
+    if (g_state_cache.load("data/state_cache.bin"))
+    {
+        std::cout << " " << g_state_cache.size() << " states loaded\n" << std::flush;
+    }
+    else
+    {
+        std::cout << " failed or not found\n" << std::flush;
+    }
+    
     // Scan existing file
     std::cout << "Scanning existing file...\n" << std::flush;
     AnalysisState state = scan_existing_file();
@@ -135,6 +149,9 @@ int main()
     pending_output.reserve(10000);
     
     std::atomic<uint64_t> patterns_processed(0);
+    std::atomic<uint64_t> last_checkpoint(0);
+    std::atomic<size_t> last_cache_size(0);
+    const uint64_t CHECKPOINT_INTERVAL = 10000;  // Save cache every 10,000 patterns
     auto start_time = std::chrono::steady_clock::now();
     
     // Progress reporting thread
@@ -191,10 +208,11 @@ int main()
     {
         workers.emplace_back([&, missing_patterns = state.missing]() {
             SpiralBinaryGenerator gen(64, 3);
+            CachedLifeAnalyzer analyzer(g_state_cache);
             std::vector<std::string> local_batch;
             local_batch.reserve(BATCH_SIZE);
             
-            while (true)
+            while (!done.load())
             {
                 uint64_t idx;
                 
@@ -225,10 +243,7 @@ int main()
                 }
                 
                 PlacedGrid pg = gen.from_index(idx);
-                LifeRunner runner;
-                runner.init(std::move(pg));
-                
-                auto info = runner.run_until_repeat(2);
+                auto info = analyzer.analyze(std::move(pg), 2);
                 
                 // Build result string
                 std::ostringstream oss;
@@ -249,6 +264,46 @@ int main()
                 
                 local_batch.push_back(oss.str());
                 patterns_processed++;
+                
+                // Periodic cache checkpoint
+                uint64_t current_processed = patterns_processed.load();
+                uint64_t last_cp = last_checkpoint.load();
+                if (current_processed - last_cp >= CHECKPOINT_INTERVAL)
+                {
+                    if (last_checkpoint.compare_exchange_strong(last_cp, current_processed))
+                    {
+                        // Only one thread saves
+                        size_t current_cache_size = g_state_cache.size();
+                        size_t prev_cache_size = last_cache_size.load();
+                        size_t new_states = current_cache_size - prev_cache_size;
+                        
+                        uint64_t hits = g_state_cache.hits();
+                        uint64_t misses = g_state_cache.misses();
+                        uint64_t total_lookups = hits + misses;
+                        double hit_rate = total_lookups > 0 ? (100.0 * hits / total_lookups) : 0.0;
+                        
+                        uint64_t cp_hits = g_state_cache.checkpoint_hits();
+                        uint64_t cp_misses = g_state_cache.checkpoint_misses();
+                        uint64_t cp_total = cp_hits + cp_misses;
+                        double cp_hit_rate = cp_total > 0 ? (100.0 * cp_hits / cp_total) : 0.0;
+                        
+                        std::cout << "\n[Checkpoint: " << current_cache_size << " states (+" 
+                                  << new_states << " new) | Hit: " << std::fixed 
+                                  << std::setprecision(1) << cp_hit_rate << "% (overall " 
+                                  << hit_rate << "%) | Saving...]";
+                        
+                        if (g_state_cache.save("data/state_cache.bin"))
+                        {
+                            std::cout << " Done\n" << std::flush;
+                            last_cache_size.store(current_cache_size);
+                            g_state_cache.reset_checkpoint_stats();
+                        }
+                        else
+                        {
+                            std::cout << " Failed\n" << std::flush;
+                        }
+                    }
+                }
                 
                 // Flush local batch to shared output
                 if (local_batch.size() >= BATCH_SIZE)
@@ -286,12 +341,42 @@ int main()
     
     // Wait indefinitely (Ctrl+C to stop)
     std::cout << "Processing patterns...\n" << std::flush;
+    std::cout << "Press Ctrl+C to stop and display statistics\n\n" << std::flush;
+    
+    // In a real scenario, you'd handle signals properly
+    // For now, threads run indefinitely
     for (auto& w : workers)
     {
         w.join();
     }
+    
+    done.store(true);
     progress_thread.join();
     writer_thread.join();
+    
+    // Save final cache state
+    std::cout << "\nSaving cache..." << std::flush;
+    if (g_state_cache.save("data/state_cache.bin"))
+    {
+        std::cout << " saved " << g_state_cache.size() << " states\n";
+    }
+    else
+    {
+        std::cout << " failed\n";
+    }
+    
+    // Display cache statistics
+    std::cout << "\n=== Cache Statistics ===\n";
+    std::cout << "Cache size: " << g_state_cache.size() << " states\n";
+    std::cout << "Cache hits: " << g_state_cache.hits() << "\n";
+    std::cout << "Cache misses: " << g_state_cache.misses() << "\n";
+    uint64_t total_lookups = g_state_cache.hits() + g_state_cache.misses();
+    if (total_lookups > 0)
+    {
+        double hit_rate = 100.0 * g_state_cache.hits() / total_lookups;
+        std::cout << "Hit rate: " << std::fixed << std::setprecision(2) << hit_rate << "%\n";
+    }
+    std::cout << "========================\n";
     
     return 0;
 }

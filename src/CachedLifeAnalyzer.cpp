@@ -8,14 +8,14 @@ CachedLifeAnalyzer::Result CachedLifeAnalyzer::analyze(PlacedGrid pg, int margin
     
     int64_t current_gen = 0;
     std::vector<CanonicalState> path;
-    path.reserve(max_steps / 10);  // Reasonable reserve to avoid reallocations
+    path.reserve(max_steps / 10);
     
     while (current_gen < max_steps)
     {
         // Get canonical state (translation-invariant)
         CanonicalState canonical_state = runner.canonical_translation_invariant();
         
-        // Check cache
+        // Check cache FIRST
         CachedCycleInfo cached_info;
         if (cache_.lookup(canonical_state, cached_info))
         {
@@ -34,21 +34,10 @@ CachedLifeAnalyzer::Result CachedLifeAnalyzer::analyze(PlacedGrid pg, int margin
             return result;
         }
         
-        // No cache hit - add to path and continue
-        path.push_back(canonical_state);
-        
-        // Step forward
-        runner.step(margin);
-        current_gen++;
-        
-        // Check for cycle in current path using Floyd's algorithm
-        // We'll use the runner's built-in cycle detection
-        // But first check if we've seen this state before in our current path
-        CanonicalState new_state = runner.canonical_translation_invariant();
-        
+        // Check if we've seen this state in our current path (cycle detection)
         for (size_t i = 0; i < path.size(); ++i)
         {
-            if (canonical_equal(path[i], new_state))
+            if (canonical_equal(path[i], canonical_state))
             {
                 // Found a cycle!
                 int64_t cycle_start_gen = i;
@@ -57,10 +46,14 @@ CachedLifeAnalyzer::Result CachedLifeAnalyzer::analyze(PlacedGrid pg, int margin
                 // Compute translation
                 auto stats_cycle_start = runner.stats();
                 
-                // Need to get position at cycle start
-                // We'll need to track positions - let's use the runner's approach
+                // Create a PlacedGrid from current state
+                PlacedGrid temp_pg;
+                temp_pg.grid = runner.grid();
+                temp_pg.offset_x = stats_cycle_start.offset_x;
+                temp_pg.offset_y = stats_cycle_start.offset_y;
+                
                 LifeRunner temp_runner;
-                temp_runner.init(runner.grid());
+                temp_runner.init(std::move(temp_pg));
                 temp_runner.run(period, margin);
                 auto stats_after_period = temp_runner.stats();
                 
@@ -84,39 +77,39 @@ CachedLifeAnalyzer::Result CachedLifeAnalyzer::analyze(PlacedGrid pg, int margin
                 cycle_info.cycle_state_hash = path[cycle_start_gen].hash;
                 
                 // Backfill from current position back to start
-                for (int64_t i = 0; i < (int64_t)path.size(); ++i)
+                for (int64_t j = 0; j < (int64_t)path.size(); ++j)
                 {
                     CachedCycleInfo info_for_state;
-                    info_for_state.steps_to_cycle = cycle_start_gen - i;
+                    info_for_state.steps_to_cycle = (j < cycle_start_gen) ? (cycle_start_gen - j) : 0;
                     info_for_state.cycle_start_gen = cycle_start_gen;
                     info_for_state.period = period;
                     info_for_state.dx = dx;
                     info_for_state.dy = dy;
                     info_for_state.cycle_state_hash = path[cycle_start_gen].hash;
                     
-                    cache_.insert(path[i], info_for_state);
+                    cache_.insert(path[j], info_for_state);
                 }
                 
-                // Also cache the states in the cycle itself
-                for (int64_t i = cycle_start_gen; i < current_gen; ++i)
-                {
-                    CachedCycleInfo info_for_state;
-                    info_for_state.steps_to_cycle = 0;  // Already in cycle
-                    info_for_state.cycle_start_gen = cycle_start_gen;
-                    info_for_state.period = period;
-                    info_for_state.dx = dx;
-                    info_for_state.dy = dy;
-                    info_for_state.cycle_state_hash = path[cycle_start_gen].hash;
-                    
-                    if (i < (int64_t)path.size())
-                    {
-                        cache_.insert(path[i], info_for_state);
-                    }
-                }
+                // Also cache the current state (which completes the cycle)
+                CachedCycleInfo info_for_current;
+                info_for_current.steps_to_cycle = 0;  // Already in cycle
+                info_for_current.cycle_start_gen = cycle_start_gen;
+                info_for_current.period = period;
+                info_for_current.dx = dx;
+                info_for_current.dy = dy;
+                info_for_current.cycle_state_hash = path[cycle_start_gen].hash;
+                cache_.insert(canonical_state, info_for_current);
                 
                 return result;
             }
         }
+        
+        // No cache hit and no cycle yet - add to path and continue
+        path.push_back(canonical_state);
+        
+        // Step forward
+        runner.step(margin);
+        current_gen++;
     }
     
     // Max steps reached without finding cycle
