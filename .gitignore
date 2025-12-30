@@ -1,0 +1,41 @@
+# Compiled executables
+*.exe
+*.out
+
+# Object files
+*.o
+*.obj
+
+# Debug files
+*.pdb
+*.ilk
+*.idb
+
+# Visual Studio Code
+.vs/
+*.code-workspace
+
+# Build directories
+bin/
+obj/
+Debug/
+Release/
+
+# Compiler generated files
+*.map
+*.exp
+*.lib
+*.dll
+
+# Build directory
+build/
+
+# Data directory
+data/
+
+# Snapshot files
+tools/pattern_analysis_snapshot_*.txt
+
+# OS generated files
+.DS_Store
+Thumbs.db
